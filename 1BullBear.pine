@@ -1,0 +1,351 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © KweeBoss_
+//@version=5
+
+indicator("1BullBear™", "1BullBear™"
+  , overlay = true
+  , max_labels_count = 500
+  , max_lines_count = 500
+  , max_boxes_count = 500)
+
+//-----------------------------------------------------------------------------
+//CONSTANTS
+//-----------------------------------------------------------------------------
+color TRANS_COLOR   = #00000000
+
+//Tooltips
+string DAY_TOOLTIP = 'Divide based on New York Midnight or Exchange Date'
+
+//------------------------------------------------------------------------------
+//SETTING INPUTS
+//------------------------------------------------------------------------------
+
+//---SESSIONS---
+// Tokyo Session
+show_asian          = input(true, '', inline = 'asian', group = 'Sessions (Session City  Regional Times)')
+asian_txt           = input('A', '', inline = 'asian', group = 'Sessions (Session City  Regional Times)')
+asian_time          = input.session('0900-1500', '', inline = 'asian', group = 'Sessions (Session City  Regional Times)')
+asian_color         = input.color(#EF5350, '', inline = 'asian', group = 'Sessions (Session City  Regional Times)')
+
+// London Session
+show_london         = input(true, '', inline = 'london', group = 'Sessions (Session City  Regional Times)')
+london_txt          = input('L', '', inline = 'london', group = 'Sessions (Session City  Regional Times)')
+london_time         = input.session('0700-1100', '', inline = 'london', group = 'Sessions (Session City  Regional Times)')
+london_color        = input.color(#5DADE2, '', inline = 'london', group = 'Sessions (Session City  Regional Times)')
+
+// New York Session
+show_newyork        = input(true, '', inline = 'newyork', group = 'Sessions (Session City  Regional Times)')
+newyork_txt         = input('N', '', inline = 'newyork', group = 'Sessions (Session City  Regional Times)')
+newyork_time        = input.session('0830-1130', '', inline = 'newyork', group = 'Sessions (Session City  Regional Times)')
+newyork_color       = input.color(#F1C40F, '', inline = 'newyork', group = 'Sessions (Session City  Regional Times)')
+
+// Sessions         - Background, Range , Label, Transparency
+session_range       = input(true, 'Session Background', inline = 'range', group = 'Sessions (Session City  Regional Times)')
+show_outline        = input(true, 'Outline', inline = 'range',group = 'Sessions (Session City  Regional Times)')
+show_session_txt    = input(true, 'Label', inline = 'range',group = 'Sessions (Session City  Regional Times)')
+bg_transp           = input.float(90, 'Range Area Transparency', group = 'Sessions (Session City  Regional Times)')
+
+// Dashboard 
+show_strength           = input(true, 'Currency Strength', inline = 'dash',group   = 'Dashboard')
+
+
+// --- HELPERS ---
+
+// Day Divider
+show_day_div        = input(true, 'Daily Divider', inline = 'dayopt', group = 'Helpers')
+day_option          = input.string('Normal Day', '', inline = 'dayopt', options = ['NYC Day', 'Normal Day'], group   = 'Helpers', tooltip = DAY_TOOLTIP)
+// Previous Day High/Low - pdhl
+show_pdhl           = input(true, 'PDHL', inline = 'pdhl', group = 'Helpers')
+pdhl_style          = input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = 'pdhl', group = 'Helpers')
+pdhl_color          = input(#00bcd4, '', inline = 'pdhl', group = 'Helpers')
+
+// Previous Week High/Low - pwhl
+show_pwhl           = input(false, 'PWHL', inline = 'pwhl ', group = 'Helpers')
+pwhl_style          = input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = 'pwhl ', group = 'Helpers')
+pwhl_color          = input(#00bcd4, '', inline = 'pwhl ', group = 'Helpers')
+
+// Previous Month High/Low - pmhl
+show_pmhl           = input(false, 'PMHL', inline = 'pmhl', group = 'Helpers')
+pmhl_style          = input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = 'pmhl', group = 'Helpers')
+pmhl_color          = input(#801922, '', inline = 'pmhl', group = 'Helpers')
+
+// New York Open Level
+show_ny_open        = input(true, 'NYOL', inline = 'nyop', group = 'Helpers')
+ny_open_style       = input.string('····', '', options = ['⎯⎯⎯', '----', '····'], inline = 'nyop', group = 'Helpers')
+ny_open_color       = input(#ffffff, '', inline = 'nyop', group = 'Helpers')
+
+
+//---Bar Variables---
+n               = bar_index
+tf              = timeframe.period
+day             = dayofweek
+is_asian        = math.sign(nz(time(tf, asian_time,   "Asia/Tokyo")))
+is_london       = math.sign(nz(time(tf, london_time,  "Europe/London")))
+is_newyork      = math.sign(nz(time(tf, newyork_time, "America/New_York")))
+nybar           = hour(time,"America/New_York" ) == 0 and minute(time,"America/New_York" ) == 0
+
+
+//------------------------------------------------------------------------------
+//FUNCTIONS
+//------------------------------------------------------------------------------
+
+//---Utility Functions---
+oc()                  => [open, close]
+oc(bar)               => [open[bar], close[bar]]
+hl()                  => [high, low]
+hl(bar)               => [high[bar], low[bar]]  
+ohlc()                => [open, high, low, close]
+hlv()                 => [high, low, volume]
+
+get_line_style(style) =>
+    out = switch style
+        '⎯⎯⎯' => line.style_solid
+        '----'  => line.style_dashed
+        '····'  => line.style_dotted
+
+//---Computational Functions---
+
+//Session Function 
+_f_session(is_session, session_name, session_color)=>
+    var s_time        = 0 // Session Start Time
+    var s_max         = high
+    var s_min         = low
+    var box s_box     = na
+    var line s_high   = na
+    var line s_low    = na
+    var label s_label = na
+
+    //New Session Start
+    if is_session == 1 and is_session != is_session[1]
+        s_time  := time
+        s_max   := high
+        s_min   := low
+
+        //Create new session box
+        if session_range 
+            s_box   := box.new(n, s_max, n, s_min
+              , bgcolor = color.new(session_color, bg_transp)
+              , border_color = na)
+
+        //Create new session high/low lines
+        if show_outline
+            s_high  := line.new(s_time, s_max, s_time, s_max
+              , xloc = xloc.bar_time
+              , color = session_color
+              , width = 1
+              , extend = extend.none)
+            s_low   := line.new(s_time, s_min, s_time, s_min
+              , xloc = xloc.bar_time
+              , color = session_color
+              , width = 1
+              , extend = extend.none)
+
+        //Create new session label
+        if show_session_txt
+            s_label := label.new(s_time, s_max, session_name
+              , xloc = xloc.bar_time
+              , textcolor = session_color
+              , style = label.style_label_down
+              , color = color.new(color.white, 100)
+              , size = size.small)
+
+    //During Session
+    if is_session  == 1 and is_session == is_session[1]
+      
+        s_max := math.max(high, s_max)
+        s_min := math.min(low, s_min)
+
+        box.set_top(s_box, s_max)
+        box.set_rightbottom(s_box, n, s_min)
+
+        line.set_xy1(s_high, s_time,s_max )
+        line.set_xy1(s_low, s_time,s_min )
+        line.set_xy2(s_high, time,s_max )
+        line.set_xy2(s_low, time,s_min )
+
+        if show_session_txt
+            label.set_xy(s_label, int(math.avg(s_time, time)), s_max)
+
+
+//Previous High/Low Function
+_f_previous_high_low(h, l, tf, _f_linestyle, _f_color)=>
+    
+    var line high_line = line.new(na,na,na,na
+      , xloc = xloc.bar_time
+      , color = _f_color
+      , style = get_line_style(_f_linestyle))
+
+    var label high_lbl = label.new(na,na
+      , xloc = xloc.bar_time
+      , text = str.format('P{0}H', tf)
+      , color = TRANS_COLOR
+      , textcolor = _f_color, size = size.small
+      , style = label.style_label_left)
+
+    var line low_line = line.new(na,na,na,na
+      , xloc = xloc.bar_time, color = _f_color
+      , style = get_line_style(_f_linestyle))
+
+    var label low_lbl = label.new(na,na
+      , xloc = xloc.bar_time
+      , text = str.format('P{0}L', tf)
+      , color = TRANS_COLOR, textcolor = _f_color
+      , size = size.small, style = label.style_label_left)
+    
+    //Get Previous High/Low
+    hy = ta.valuewhen(h != h[1], h, 1)
+    hx = ta.valuewhen(h == high, time, 1)
+    ly = ta.valuewhen(l != l[1], l, 1)
+    lx = ta.valuewhen(l == low, time, 1)
+    
+    //Draw only at the last bar
+    if barstate.islast and barstate.isrealtime
+        ext = time + (time - time[1])*20
+        //High
+        line.set_xy1(high_line, hx, hy)
+        line.set_xy2(high_line, ext, hy)
+        label.set_xy(high_lbl, ext, hy)
+        //Low
+        line.set_xy1(low_line, lx, ly)
+        line.set_xy2(low_line, ext, ly)
+        label.set_xy(low_lbl, ext, ly)
+
+//New York Open Level Function
+_f_newyork_open(_f_linestyle, _f_color) =>
+
+    var line nyop_line = line.new(na,na,na,na, xloc = xloc.bar_time, color = _f_color, style = get_line_style(_f_linestyle))
+    var label nyop_lbl = label.new(na,na,"NYOP", xloc = xloc.bar_time, color = TRANS_COLOR, textcolor = _f_color, size = size.small, style = label.style_label_left)
+    var float nyop_price = 0.00
+
+    //Get New York Open Time
+    nyx = ta.valuewhen(hour(time,"America/New_York" ) == 0 and minute(time,"America/New_York" ) == 0, time, 0)
+    
+    //Set New York Open Price
+    if hour(time,"America/New_York" ) == 0 and minute(time,"America/New_York" ) == 0
+        nyop_price := open
+    
+    //Draw only at the last bar
+    if barstate.islast
+        ext = time + (time - time[1])*20
+        
+        line.set_xy1(nyop_line, nyx, nyop_price)
+        line.set_xy2(nyop_line, ext, nyop_price)
+        label.set_xy(nyop_lbl, ext, nyop_price)
+
+//------------------------------------------------------------------------------
+//PLOTS
+//------------------------------------------------------------------------------
+
+//---SESSIONS---
+if show_asian 
+    _f_session(is_asian, asian_txt, asian_color)
+
+if show_london 
+    _f_session(is_london, london_txt, london_color)
+
+if show_newyork 
+    _f_session(is_newyork, newyork_txt, newyork_color)
+
+
+//---HELPERS---
+
+//Day Dividers 
+
+if show_day_div
+    day := dayofweek
+    if nybar and day_option == 'NYC Day'
+        line.new(n, close + syminfo.mintick, n, close - syminfo.mintick, color  = color.gray, extend = extend.both, style  = line.style_dotted)
+    if day != day[1] and day_option == 'Normal Day'
+        line.new(n, close + syminfo.mintick, n, close - syminfo.mintick, color  = color.gray, extend = extend.both, style  = line.style_dotted)
+
+plotshape(nybar and day_option == 'NYC Day' and day == 1 and show_day_div  , "Sunday", shape.labelup, location.bottom, na, text = "SUN", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(nybar and day_option == 'NYC Day' and  day == 2 and show_day_div  , "Monday", shape.labelup, location.bottom, na, text = "MON", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(nybar and day_option == 'NYC Day' and  day == 3 and show_day_div  , "Tuesday", shape.labelup, location.bottom, na, text = "TUE", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(nybar and day_option == 'NYC Day' and  day == 4 and show_day_div  , "Wednesay", shape.labelup, location.bottom, na, text = "WED", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(nybar and day_option == 'NYC Day' and  day == 5 and show_day_div  , "Thursday", shape.labelup, location.bottom, na, text = "THU", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(nybar and day_option == 'NYC Day' and  day == 6 and show_day_div  , "Friday", shape.labelup, location.bottom, na, text = "FRI", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(nybar and day_option == 'NYC Day' and  day == 7 and show_day_div  , "Saturday", shape.labelup, location.bottom, na, text = "SAT", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+
+plotshape(day != day[1] and day == 1 and day_option == 'Normal Day' and show_day_div, "Sunday", shape.labelup, location.bottom, na, text = "SUN", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(day != day[1] and day == 2 and day_option == 'Normal Day' and show_day_div, "Monday", shape.labelup, location.bottom, na, text = "MON", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(day != day[1] and day == 3 and day_option == 'Normal Day' and show_day_div, "Tuesday", shape.labelup, location.bottom, na, text = "TUE", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(day != day[1] and day == 4 and day_option == 'Normal Day' and show_day_div, "Wednesay", shape.labelup, location.bottom, na, text = "WED", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(day != day[1] and day == 5 and day_option == 'Normal Day' and show_day_div, "Thursday", shape.labelup, location.bottom, na, text = "THU", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(day != day[1] and day == 6 and day_option == 'Normal Day' and show_day_div, "Friday", shape.labelup, location.bottom, na, text = "FRI", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+plotshape(day != day[1] and day == 7 and day_option == 'Normal Day' and show_day_div, "Saturday", shape.labelup, location.bottom, na, text = "SAT", textcolor = color.gray, size = size.tiny, display = display.all - display.status_line, editable = false)
+
+//Previous Day High/Low - pdhl
+[pdh, pdl] = request.security(syminfo.tickerid, 'D', hl(), lookahead = barmerge.lookahead_on)
+if show_pdhl
+    _f_previous_high_low(pdh, pdl, 'D', pdhl_style, pdhl_color)
+
+//Previous Week High/Low - pwhl
+[pwh, pwl] = request.security(syminfo.tickerid, 'W', hl(), lookahead = barmerge.lookahead_on)
+if show_pwhl
+    _f_previous_high_low(pwh, pwl, 'W', pwhl_style, pwhl_color)
+
+//Previous Month High/Low - pdhl
+[pmh, pml] = request.security(syminfo.tickerid, 'M', hl(), lookahead = barmerge.lookahead_on)
+if show_pmhl
+    _f_previous_high_low(pmh, pml, 'M', pmhl_style, pmhl_color)
+
+//New York Open Level - nyol
+if show_ny_open
+    _f_newyork_open(ny_open_style, ny_open_color)
+
+//---DASHBOARD---
+
+// Define the currencies and their respective indices
+DXY = request.security('DXY', 'D', (close - open) / open * 100)
+EXY = request.security('EXY', 'D', (close - open) / open * 100)
+BXY = request.security('BXY', 'D', (close - open) / open * 100)
+JXY = request.security('JXY', 'D', (close - open) / open * 100)
+CXY = request.security('CXY', 'D', (close - open) / open * 100)
+AXY = request.security('AXY', 'D', (close - open) / open * 100)
+ZXY = request.security('ZXY', 'D', (close - open) / open * 100)
+SXY = request.security('SXY', 'D', (close - open) / open * 100)
+
+set_meter(table, row, strength, min, max, bg_css)=>
+    scale = math.round(((strength - min) / (max - min) * 10)+1)
+    table.clear(table, 1, row , 12, row)
+    for i = 1 to scale
+        table.cell(table, i, row, '', bgcolor = bg_css, width = 0.1, height = 0.1)
+
+
+var tb = table.new(position.bottom_right, 13, 24, bgcolor = #040a1e)
+
+
+if barstate.isfirst and show_strength
+    
+    table.merge_cells(tb, 0, 0, 0, 2)
+    table.merge_cells(tb, 0, 3, 0, 5)
+    table.merge_cells(tb, 0, 6, 0, 8)
+    table.merge_cells(tb, 0, 9, 0, 11)
+    table.merge_cells(tb, 0, 12, 0, 14)
+    table.merge_cells(tb, 0, 15, 0, 17)
+    table.merge_cells(tb, 0, 18, 0, 20)
+    table.merge_cells(tb, 0, 21, 0, 23)
+        
+    table.cell(tb, 0, 0, "USD", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 3, "EUR", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 6, "GBP", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 9, "JPY", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 12, "CAD", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 15, "AUD", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 18, "NZD", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(tb, 0, 21, "CHF", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+
+    
+
+if barstate.islast and show_strength
+    min = math.min(DXY, EXY, BXY, JXY, CXY, AXY, ZXY, SXY)
+    max = math.max(DXY, EXY, BXY, JXY, CXY, AXY, ZXY, SXY)
+    set_meter(tb, 1, DXY, min, max, #ff1100)
+    set_meter(tb, 4, EXY, min, max, #2157f3)
+    set_meter(tb, 7, BXY, min, max, #4caf50)
+    set_meter(tb, 10, JXY, min, max, #e91e63)
+    set_meter(tb, 13, CXY, min, max, #ff9800)
+    set_meter(tb, 16, AXY, min, max, #ff5d00)
+    set_meter(tb, 19, ZXY, min, max, #9c27b0)
+    set_meter(tb, 22, SXY, min, max, #673ab7)
+    
